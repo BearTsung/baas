@@ -16,7 +16,7 @@ spring:
         format_sql: true
   sql:
     init:
-      mode: always
+      mode: never
 
 jwt:
   secret: ${JWT_SECRET:change-me-in-prod-please-rotate-this-secret}
