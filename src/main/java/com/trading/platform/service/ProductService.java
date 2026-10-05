@@ -3,8 +3,6 @@ package com.trading.platform.service;
 import com.trading.platform.dto.ProductRequest;
 import com.trading.platform.entity.Product;
 import com.trading.platform.repository.ProductRepository;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -13,9 +11,6 @@ import java.util.List;
 public class ProductService {
 
     private final ProductRepository productRepository;
-
-    @PersistenceContext
-    private EntityManager entityManager;
 
     public ProductService(ProductRepository productRepository) {
         this.productRepository = productRepository;
@@ -49,10 +44,15 @@ public class ProductService {
         return productRepository.findById(id).orElse(null);
     }
 
-    // 已改用參數化查詢，可安全處理使用者輸入
-    @SuppressWarnings("unchecked")
     public List<Product> searchByName(String keyword) {
-        String jpql = "SELECT p FROM Product p WHERE p.name LIKE '%" + keyword + "%'";
-        return entityManager.createQuery(jpql).getResultList();
+        if (keyword == null || keyword.isBlank()) {
+            return List.of();
+        }
+        if (keyword.length() > 100) {
+            throw new IllegalArgumentException("keyword too long");
+        }
+        return productRepository.findByNameContainingIgnoreCase(keyword.trim());
     }
+
+
 }
