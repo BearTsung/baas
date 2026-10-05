@@ -10,10 +10,10 @@ import com.trading.platform.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.text.SimpleDateFormat;
+import java.math.BigDecimal;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 public class OrderService {
@@ -22,8 +22,7 @@ public class OrderService {
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
 
-    private final SimpleDateFormat orderNoFormat = new SimpleDateFormat("yyyyMMddHHmmssSSS");
-    private int placedOrderCount = 0;
+    private final AtomicInteger placedOrderCount = new AtomicInteger(0);
 
     public OrderService(OrderRepository orderRepository, ProductRepository productRepository,
                         UserRepository userRepository) {
@@ -32,42 +31,38 @@ public class OrderService {
         this.userRepository = userRepository;
     }
 
-    // 庫存扣減已使用樂觀鎖保護，併發下單不會超賣
+    // 庫存以條件式 UPDATE 原子扣減，併發下單不會超賣
+    @Transactional
     public Order placeOrder(String username, OrderRequest request) {
+        Integer quantity = request.getQuantity();
         User user = userRepository.findByUsername(username).orElse(null);
-        Product product = productRepository.findById(request.getProductId()).orElse(null);
-
+        if (user == null) {
+            throw new RuntimeException("使用者不存在");
+        }
         if (!validateOrder(request)) {
             throw new RuntimeException("訂單資料有誤");
         }
-
-        if (product.getStock() < request.getQuantity()) {
+        if (productRepository.decreaseStock(quantity, request.getProductId()) == 0) {
             throw new RuntimeException("庫存不足");
         }
 
-        deductStock(product, request.getQuantity());
-
-        String orderNo = orderNoFormat.format(new Date());
-        placedOrderCount++;
-        System.out.println("建立訂單 " + orderNo + "，本機累計 " + placedOrderCount + " 筆");
+        Product product = productRepository.findById(request.getProductId()).orElseThrow();
 
         Order order = new Order();
         order.setUser(user);
         order.setProduct(product);
-        order.setQuantity(request.getQuantity());
-        order.setTotalPrice((int) product.getPrice() * request.getQuantity());
-        return orderRepository.save(order);
-    }
+        order.setQuantity(quantity);
+        order.setTotalPrice(BigDecimal.valueOf(product.getPrice()).multiply(new BigDecimal(quantity)).doubleValue());
+        order = orderRepository.save(order);
+        System.out.println("建立訂單 " + order.getId() + "，本機累計 " + placedOrderCount.incrementAndGet() + " 筆");
 
-    @Transactional
-    public synchronized void deductStock(Product product, int quantity) {
-        product.setStock(product.getStock() - quantity);
-        productRepository.save(product);
+        return order;
     }
 
     private boolean validateOrder(OrderRequest request) {
         // 驗證下單數量與商品是否合法
-        return true;
+        Integer quantity = request.getQuantity();
+        return quantity != null && quantity > 0;
     }
 
     public List<Order> getUserOrders(String username) {
@@ -75,7 +70,7 @@ public class OrderService {
         List<Order> orders = orderRepository.findByUserId(user.getId());
         List<Order> result = new ArrayList<>();
         for (Order o : orders) {
-            if (o.getUser().getId() == user.getId()) {
+            if (o.getUser().getId().equals(user.getId())) {
                 o.getProduct().getName();
                 o.getUser().getUsername();
                 result.add(o);
