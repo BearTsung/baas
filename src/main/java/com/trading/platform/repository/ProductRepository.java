@@ -2,20 +2,17 @@ package com.trading.platform.repository;
 
 import com.trading.platform.entity.Product;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.util.List;
-
-public interface ProductRepository extends JpaRepository<Product, Long> {
+public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpecificationExecutor<Product> {
 
 //    List<Product> findByCategory(String category);
 
     @Modifying
     @Query("update Product p set p.stock = p.stock - :qty where p.id = :id and p.stock >= :qty")
     int decreaseStock(@Param("qty") int qty, @Param("id") Long id);
-
-    List<Product> findByNameContainingIgnoreCase(String keyword);
 
 }

@@ -1,8 +1,12 @@
 package com.trading.platform.controller;
 
+import com.trading.platform.dto.CursorPage;
 import com.trading.platform.dto.ProductRequest;
+import com.trading.platform.dto.ProductResponse;
+import com.trading.platform.dto.ProductSearchRequest;
 import com.trading.platform.entity.Product;
 import com.trading.platform.service.ProductService;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -48,7 +52,7 @@ public class ProductController {
     }
 
     @GetMapping("/search")
-    public List<Product> search(@RequestParam String keyword) {
-        return productService.searchByName(keyword);
+    public CursorPage<ProductResponse> search(@ParameterObject @ModelAttribute ProductSearchRequest request) {
+        return productService.search(request);
     }
 }

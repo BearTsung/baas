@@ -1,8 +1,10 @@
 package com.trading.platform.controller;
 
 import com.trading.platform.config.SecurityConfig;
+import com.trading.platform.dto.CursorPage;
 import com.trading.platform.dto.OrderRequest;
 import com.trading.platform.dto.ProductRequest;
+import com.trading.platform.dto.ProductSearchRequest;
 import com.trading.platform.entity.Order;
 import com.trading.platform.entity.Product;
 import com.trading.platform.security.JwtAuthenticationFilter;
@@ -100,7 +102,7 @@ class AuthorizationTest {
     void user_canBrowseProducts() throws Exception {
         when(productService.listProducts()).thenReturn(List.of());
         when(productService.getProduct(1L)).thenReturn(new Product());
-        when(productService.searchByName("鍵盤")).thenReturn(List.of());
+        when(productService.search(any(ProductSearchRequest.class))).thenReturn(new CursorPage<>(List.of(), null, false));
 
         mockMvc.perform(as("USER", get("/api/products"))).andExpect(status().isOk());
         mockMvc.perform(as("USER", get("/api/products/1"))).andExpect(status().isOk());

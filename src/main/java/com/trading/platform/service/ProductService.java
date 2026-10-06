@@ -1,8 +1,14 @@
 package com.trading.platform.service;
 
+import com.trading.platform.dto.CursorPage;
 import com.trading.platform.dto.ProductRequest;
+import com.trading.platform.dto.ProductResponse;
+import com.trading.platform.dto.ProductSearchRequest;
 import com.trading.platform.entity.Product;
 import com.trading.platform.repository.ProductRepository;
+import com.trading.platform.repository.ProductSpecifications;
+import com.trading.platform.service.search.ProductSearchCriteria;
+import com.trading.platform.service.search.ProductSearchCursor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -44,15 +50,21 @@ public class ProductService {
         return productRepository.findById(id).orElse(null);
     }
 
-    public List<Product> searchByName(String keyword) {
-        if (keyword == null || keyword.isBlank()) {
-            return List.of();
-        }
-        if (keyword.length() > 100) {
-            throw new IllegalArgumentException("keyword too long");
-        }
-        return productRepository.findByNameContainingIgnoreCase(keyword.trim());
+    /**
+     * 模糊搜尋 + 價格區間 + 排序 + keyset 分頁。
+     * 多取一筆用來判斷是否還有下一頁，不另外計算總筆數。
+     */
+    public CursorPage<ProductResponse> search(ProductSearchRequest request) {
+        ProductSearchCriteria criteria = ProductSearchCriteria.from(request);
+        List<Product> rows = productRepository.findBy(
+                ProductSpecifications.matching(criteria),
+                query -> query.sortBy(criteria.toSort()).limit(criteria.size() + 1).all());
+
+        boolean hasNext = rows.size() > criteria.size();
+        List<Product> page = hasNext ? rows.subList(0, criteria.size()) : rows;
+        String nextCursor = hasNext
+                ? ProductSearchCursor.of(page.getLast(), criteria.sort(), criteria.direction()).encode()
+                : null;
+        return new CursorPage<>(page.stream().map(ProductResponse::from).toList(), nextCursor, hasNext);
     }
-
-
 }

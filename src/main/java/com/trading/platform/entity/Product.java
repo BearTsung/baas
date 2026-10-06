@@ -20,5 +20,6 @@ public class Product {
 
     private Integer stock;
 
+    @Column(nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 }
