@@ -2,6 +2,7 @@ package com.trading.platform.controller;
 
 import com.trading.platform.dto.LoginRequest;
 import com.trading.platform.service.AuthService;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -15,6 +16,7 @@ public class AuthController {
     }
 
     @PostMapping("/login")
+    @SecurityRequirements() // 登入不需要 token
     public String login(@RequestBody LoginRequest request) {
         String token = authService.login(request);
         if (token == null) {

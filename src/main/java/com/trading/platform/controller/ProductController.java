@@ -3,6 +3,7 @@ package com.trading.platform.controller;
 import com.trading.platform.dto.ProductRequest;
 import com.trading.platform.entity.Product;
 import com.trading.platform.service.ProductService;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -18,16 +19,19 @@ public class ProductController {
     }
 
     @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public Product create(@RequestBody ProductRequest request) {
         return productService.createProduct(request);
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     public Product update(@PathVariable Long id, @RequestBody ProductRequest request) {
         return productService.updateProduct(id, request);
     }
 
     @DeleteMapping("/delete/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     public String delete(@PathVariable Long id) {
         productService.deleteProduct(id);
         return "deleted";
