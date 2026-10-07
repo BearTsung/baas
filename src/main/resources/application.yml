@@ -18,7 +18,8 @@ spring:
       mode: never
 
 jwt:
-  secret: ${JWT_SECRET:change-me-in-prod-please-rotate-this-secret}
+  # 不提供預設值：未設定 JWT_SECRET 時啟動失敗，避免以公開的金鑰簽發 token
+  secret: ${JWT_SECRET}
   expiration-ms: 3600000
 
 springdoc:
