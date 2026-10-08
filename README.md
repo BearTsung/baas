@@ -1,25 +1,70 @@
-# Trading Platform（接手專案）
+# Trading Platform
 
-商品交易平台後端服務。**這是一份從前一位開發者手上接手的專案，目前「跑得起來」，但品質與正確性尚待檢視。**
+商品交易平台後端服務。接手自前一位開發者，已完成 Code Review、修正嚴重問題，並新增商品進階查詢。
+
+- Code Review 報告：[CODE_REVIEW.md](CODE_REVIEW.md)
 
 ## 技術棧
 - Java 21 / Spring Boot 4.0
 - Spring Security + JWT
 - Spring Data JPA / PostgreSQL
 - springdoc (Swagger UI)
+- 測試：JUnit 5、Mockito、Testcontainers
+
+## 主要變更
+
+依 commit 順序，每個 commit 對應一類問題，細節見 commit message 與 [CODE_REVIEW.md](CODE_REVIEW.md)。
+
+| Commit | 內容 |
+|--------|------|
+| `8e88f9c` | 修正無法啟動：不存在的 `findByCategory`、filter 未註冊為 bean、record accessor 寫錯；停用每次啟動自動執行 `data.sql` |
+| `7f71201` | 下單：條件式 UPDATE 原子扣庫存，防止超賣；扣庫存與建立訂單放在同一交易；驗證數量；總價改用 `BigDecimal`；`Long` 改用 `equals` 比較 |
+| `7708435` | 商品搜尋改為參數綁定，修正 JPQL injection；刪除商品改用 `DELETE` |
+| `3358fe8` | 安全性：JWT 帶角色並設定過期時間、金鑰改由設定讀取；商品寫入 API 限 ADMIN；密碼改為雜湊比對；回應不再帶出密碼；Swagger 支援帶 token |
+| `2c8b1a1` | 第三部分：商品進階查詢（模糊搜尋、價格區間、排序、keyset 分頁），百萬筆資料效能驗證 |
+
+尚未處理的中等／輕微問題（錯誤碼對應、商品輸入驗證、金額型別、schema migration 等）列在 Code Review 報告中，並註明原因。
+
+## 第三部分：選擇 A（商品進階查詢）
+
+選 A 而不是 B 的理由：
+
+- **與既有問題直接相關**：原本的 `searchByName` 有 JPQL injection、`GET /api/products` 沒有分頁，百萬筆資料時會一次載入全部商品。A 正好把這兩個問題一起解決，而不是在旁邊另外加一塊功能。
+- **效能可以量化驗證**：題目要求考慮百萬級資料量。索引、執行計畫與分頁方式的取捨可以用 `EXPLAIN ANALYZE` 實測，結論有數據支撐，而不只是推論。
+
+設計重點（詳見下方「商品進階查詢」）：
+
+- 模糊搜尋使用 `pg_trgm` GIN 索引，跳脫 `%`、`_`、`\`，避免使用者輸入被當成萬用字元
+- 排序欄位採白名單，並以 `id` 作為次要排序，確保同值資料順序固定
+- keyset（cursor）分頁取代 OFFSET：深分頁不會變慢，翻頁途中有資料新增也不會重複或遺漏
+- 不計算總筆數：百萬筆加模糊條件的 `count(*)` 本身就要數十毫秒
+- 已知限制：1–2 字的關鍵字用不到 trigram 索引，已實測並記錄
 
 ## 啟動方式
+
+需要 Java 21 與 Docker。
 
 1. 啟動資料庫：
    ```
    docker compose up -d
    ```
-2. 啟動應用程式：
+2. 啟動應用程式（首次啟動時由 Hibernate 建立資料表）。JWT 金鑰沒有預設值，必須以環境變數 `JWT_SECRET` 提供（至少 32 bytes），未設定時會啟動失敗：
    ```
+   export JWT_SECRET=$(openssl rand -base64 48)
    ./mvnw spring-boot:run
    ```
-   （或用 IDE 執行 `TradeApplication`）
-3. Swagger UI： http://localhost:8080/swagger-ui.html
+   （或用 IDE 執行 `TradeApplication`，並在 Run Configuration 設定 `JWT_SECRET`。每次產生新金鑰後，舊 token 都會失效，需重新登入。）
+3. 首次啟動後，另開終端機匯入初始資料與建立搜尋索引（各執行一次即可）：
+   ```
+   docker compose exec -T db psql -U trading -d trading < src/main/resources/data.sql
+   docker compose exec -T db psql -U trading -d trading < src/main/resources/db/product-search-indexes.sql
+   ```
+4. Swagger UI： http://localhost:8080/swagger-ui.html
+   先呼叫 `POST /api/auth/login` 取得 token，再點右上角 **Authorize** 貼上。
+
+正式環境的 `JWT_SECRET` 應由 secret 管理服務注入，並在所有 instance 間共用同一把金鑰。
+
+> 若 `./mvnw` 出現 permission denied，先執行 `chmod +x mvnw`，或改用 `sh mvnw`。
 
 ## 預設帳號
 | 帳號 | 密碼 | 角色 |
@@ -29,11 +74,37 @@
 
 ## 主要 API
 - `POST /api/auth/login` 登入，回傳 JWT
-- `GET/POST/PUT /api/products`、`DELETE /api/products/delete/{id}` 商品（新增／修改／刪除限 ADMIN）
+- `GET /api/products`、`GET /api/products/{id}` 瀏覽商品
+- `POST /api/products`、`PUT /api/products/{id}`、`DELETE /api/products/delete/{id}` 新增／修改／刪除商品（限 ADMIN）
 - `GET /api/products/search` 商品進階查詢（見下方說明）
-- `POST /api/orders`、`GET /api/orders` 下單與查詢
+- `POST /api/orders`、`GET /api/orders` 下單與查詢自己的訂單
 
 > 呼叫受保護 API 時，於 Header 帶入 `Authorization: Bearer <token>`。
+
+## 測試
+
+```
+./mvnw test
+```
+
+測試不需要設定 `JWT_SECRET`，`src/test/resources/config/application.yml` 已提供測試專用金鑰。整合測試使用 Testcontainers 啟動 PostgreSQL 16，需要 Docker 正在執行；沒有 Docker 時這些測試會自動略過（不會失敗），其餘單元測試照常執行。
+
+| 測試類別 | 類型 | 驗證內容 |
+|----------|------|----------|
+| `OrderServiceTest` | 單元測試 | 下單流程、數量驗證、總價計算、`Long` 比對 |
+| `OrderServiceConcurrencyTest` | 整合測試（PostgreSQL） | 多執行緒同時下單不超賣；寫訂單失敗時庫存回滾 |
+| `AuthorizationTest` | Web 層測試 | 以真實 JWT 驗證各 API 的角色權限、偽造 token 被拒 |
+| `ProductSearchCriteriaTest` | 單元測試 | 搜尋參數驗證、預設值、cursor 編解碼 |
+| `ProductSearchControllerTest` | Web 層測試 | 參數綁定、不合法參數回 400 |
+| `ProductSearchIntegrationTest` | 整合測試（PostgreSQL） | 模糊搜尋、injection 與萬用字元跳脫、價格區間、逐頁走訪結果與一次排序完全一致 |
+
+只跑單一類別：
+
+```
+./mvnw test -Dtest=OrderServiceConcurrencyTest
+```
+
+效能測試腳本不在 `mvn test` 中執行，重現方式見下方「效能實測」。
 
 ## 商品進階查詢
 
